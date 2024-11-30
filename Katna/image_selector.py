@@ -19,6 +19,7 @@ import itertools
 import time
 from multiprocessing import Pool
 import Katna.config as config
+import argparse
 
 
 class ImageSelector(object):
@@ -306,3 +307,86 @@ class ImageSelector(object):
             for img in filtered_key_frames:
                 filtered_images_list.append(img)
         return filtered_images_list
+    
+    def select_best_frame_indices(self, input_key_frames, number_of_frames):
+        """
+        Public function for ImageSelector class: takes a list of keyframe images and number of required
+        frames as input, returns a list of indices corresponding to the filtered keyframes.
+
+        :param input_key_frames: list of input keyframes in list of OpenCV image format
+        :type input_key_frames: python list of OpenCV images
+        :param number_of_frames: Required number of frames
+        :type number_of_frames: int
+        :return: Returns list of indices corresponding to the filtered keyframes
+        :rtype: python list of integers
+        """
+
+        self.nb_clusters = number_of_frames
+
+        filtered_key_frames = []
+        filtered_indices = []
+        # Repeat until number of frames 
+        min_brightness_values = np.arange(config.ImageSelector.min_brightness_value, -0.01, -self.brightness_step)
+        max_brightness_values = np.arange(config.ImageSelector.max_brightness_value, 100.01, self.brightness_step)
+        min_entropy_values = np.arange(config.ImageSelector.min_entropy_value, -0.01, -self.entropy_step)
+        max_entropy_values = np.arange(config.ImageSelector.max_entropy_value, 10.01, self.entropy_step)
+
+        for (min_brightness_value, max_brightness_value, min_entropy_value, max_entropy_value) in itertools.zip_longest(min_brightness_values, max_brightness_values, min_entropy_values, max_entropy_values): 
+            if min_brightness_value is None:
+                min_brightness_value = 0.0
+            if max_brightness_value is None:
+                max_brightness_value = 100.0
+            if min_entropy_value is None:
+                min_entropy_value = 0.0
+            if max_entropy_value is None:
+                max_entropy_value = 10.0
+            self.min_brightness_value = min_brightness_value
+            self.max_brightness_value = max_brightness_value
+            self.min_entropy_value = min_entropy_value
+            self.max_entropy_value = max_entropy_value
+            filtered_key_frames = self.__filter_optimum_brightness_and_contrast_images__(
+                input_key_frames, 
+            )
+            if len(filtered_key_frames) >= number_of_frames:
+                break
+
+        # Selecting the best images from each cluster by first preparing the clusters on the basis of histograms 
+        # and then selecting the best images from every cluster
+        if len(filtered_key_frames) >= self.nb_clusters:
+            files_clusters_index_array = self.__prepare_cluster_sets__(filtered_key_frames)
+            selected_images_index = self.__get_best_images_index_from_each_cluster__(
+                filtered_key_frames, files_clusters_index_array
+            )
+
+            for index in selected_images_index:
+                filtered_indices.append(index)
+        else:
+            # If the number of required files is less than requested keyframes, return indices of all the files
+            filtered_indices = list(range(len(filtered_key_frames)))
+            
+        return filtered_indices
+
+def main():
+    # Set up argument parsing
+    parser = argparse.ArgumentParser(description="Select the best frame indices from a list of candidate indices.")
+    parser.add_argument(
+        "frame_indices", type=str, help="Comma-separated list of candidate frame indices (e.g., '0,1,2,3,4')"
+    )
+    parser.add_argument(
+        "no_of_frames", type=int, help="Number of keyframes to select"
+    )
+    args = parser.parse_args()
+
+    # Convert the comma-separated frame indices to a list of integers
+    frame_indices = list(map(int, args.frame_indices.split(',')))
+
+    # Instantiate ImageSelector and call the method
+    image_selector = ImageSelector()
+    selected_indices = image_selector.select_best_frame_indices(frame_indices, args.no_of_frames)
+
+    # Print the output
+    print(f"Selected Keyframe Indices: {selected_indices}")
+
+
+if __name__ == "__main__":
+    main()
